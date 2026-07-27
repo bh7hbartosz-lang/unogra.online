@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>UNO Arena Live</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --red: #ff5555;
+            --blue: #5555ff;
+            --green: #55aa55;
+            --yellow: #ffaa00;
+            --dark: #0f0f17;
+            --card-bg: #1e1e2e;
+            --text: #ffffff;
+        }
+
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, sans-serif; user-select: none; }
+        body { margin: 0; background-color: var(--dark); color: var(--text); overflow-x: hidden; }
+
+        /* KEKRANY LOBBY / POŁĄCZENIA */
+        .screen { display: none; padding: 20px; text-align: center; min-height: 100vh; flex-direction: column; justify-content: center; align-items: center; }
+        .screen.active { display: flex; }
+
+        h1 { font-size: 2.5rem; text-shadow: 3px 3px var(--red); margin-bottom: 20px; }
+        input { padding: 15px; font-size: 1.2rem; border-radius: 10px; border: 2px solid var(--blue); background: #2b2b3b; color: #fff; margin-bottom: 15px; width: 80%; max-width: 300px; text-align: center; }
+        
+        .btn { padding: 15px 30px; font-size: 1.2rem; font-weight: bold; border-radius: 10px; border: none; cursor: pointer; color: #fff; background: var(--blue); box-shadow: 0 5px 0 #3333aa; transition: 0.1s; width: 80%; max-width: 300px; }
+        .btn:active { transform: translateY(4px); box-shadow: 0 1px 0 #3333aa; }
+        .btn-green { background: var(--green); box-shadow: 0 5px 0 #338833; }
+        .btn-red { background: var(--red); box-shadow: 0 5px 0 #aa3333; }
+
+        /* WIDOK PC (STÓŁ) */
+        #pc-board { display: grid; grid-template-rows: 80px 1fr 120px; height: 100vh; padding: 20px; gap: 20px; }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 15px; }
+        .room-code { font-size: 1.5rem; color: var(--yellow); font-weight: bold; }
+
+        .table-center { display: flex; justify-content: center; align-items: center; gap: 40px; position: relative; }
+        
+        /* KARTA NA ŚRODKU */
+        .card { width: 110px; height: 160px; border-radius: 12px; border: 4px solid #fff; display: flex; justify-content: center; align-items: center; font-size: 2.2rem; font-weight: bold; text-shadow: 2px 2px #000; box-shadow: 0 10px 20px rgba(0,0,0,0.5); position: relative; background: #333; }
+        .card.red { background: var(--red); }
+        .card.blue { background: var(--blue); }
+        .card.green { background: var(--green); }
+        .card.yellow { background: var(--yellow); }
+        .card.black { background: #111; border-color: var(--yellow); }
+
+        /* LISTA GRACZY NA PC */
+        .players-bar { display: flex; gap: 15px; justify-content: center; align-items: center; overflow-x: auto; }
+        .player-node { background: var(--card-bg); padding: 15px; border-radius: 10px; border: 2px solid transparent; min-width: 130px; text-align: center; }
+        .player-node.active-turn { border-color: var(--yellow); transform: scale(1.05); box-shadow: 0 0 15px var(--yellow); }
+        .player-name { font-weight: bold; font-size: 1.1rem; }
+        .player-cards-count { color: #aaa; font-size: 0.9rem; }
+        .player-score { font-size: 1.2rem; color: var(--green); font-weight: bold; }
+
+        /* WIDOK TELEFONU */
+        #mobile-board { height: 100vh; display: flex; flex-direction: column; justify-content: space-between; padding: 15px; }
+        .status-box { background: rgba(255,255,255,0.1); padding: 10px; border-radius: 10px; text-align: center; font-size: 1.1rem; font-weight: bold; }
+        .hand-container { display: flex; gap: 10px; overflow-x: auto; padding: 20px 0; min-height: 200px; align-items: center; }
+        .hand-container .card { flex-shrink: 0; width: 90px; height: 135px; font-size: 1.8rem; cursor: pointer; }
+        .actions-bar { display: flex; gap: 10px; }
+
+        /* COMMUNIQUÉ SYSTEM */
+        #game-log { position: absolute; top: 10%; width: 100%; text-align: center; font-size: 2rem; color: var(--yellow); text-shadow: 0 0 10px #000; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <!-- EKRAN STARTOWY -->
+    <div id="start-screen" class="screen active">
+        <h1>🎴 UNO ONLINE</h1>
+        <button class="btn btn-green" onclick="initHost()" style="margin-bottom: 20px;">STWÓRZ POKÓJ (PC / TV)</button>
+        <hr style="width: 80%; border-color: #333; margin: 20px 0;">
+        <input type="text" id="join-code" placeholder="KOD POKOJU" style="text-transform: uppercase;">
+        <input type="text" id="player-name" placeholder="TWOJE IMIĘ">
+        <button class="btn" onclick="initClient()">DOŁĄCZ DO GRY (TELEFON)</button>
+    </div>
+
+    <!-- EKRAN GŁÓWNY (STÓŁ - PC/TV) -->
+    <div id="pc-screen" class="screen">
+        <div id="pc-board">
+            <div class="top-bar">
+                <div>KOD POKOJU: <span id="display-room-code" class="room-code">----</span></div>
+                <button class="btn btn-green" id="start-game-btn" onclick="startGame()" style="display:none; width: auto; padding: 10px 20px;">START GRY</button>
+            </div>
+
+            <div class="table-center">
+                <div id="game-log"></div>
+                <!-- Stos Dobierania -->
+                <div class="card black">UNO</div>
+                <!-- Karta na środku -->
+                <div id="top-card" class="card red">?</div>
+            </div>
+
+            <!-- Lista Graczy na dole -->
+            <div id="players-list" class="players-bar"></div>
+        </div>
+    </div>
+
+    <!-- EKRAN GRACZA (TELEFON) -->
+    <div id="mobile-screen" class="screen">
+        <div id="mobile-board">
+            <div class="status-box" id="turn-status">Czekam na ruch...</div>
+            
+            <div id="my-hand" class="hand-container">
+                <!-- Tu pojawią się karty gracza -->
+            </div>
+
+            <div class="actions-bar">
+                <button class="btn btn-red" id="draw-btn" onclick="drawCard()" disabled>DOBIERZ KARTĘ</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    let peer = null;
+    let conn = null;
+    let connections = []; // Dla Hosta (PC)
+    let isHost = false;
+
+    // STAN GRY (Host zarządza tą strukturą)
+    let gameState = {
+        players: [], // { id, name, hand: [], score: 0 }
+        deck: [],
+        topCard: null,
+        currentTurn: 0,
+        direction: 1, // 1 lub -1
+        started: false
+    };
+
+    // GENEROWANIE TALII UNO
+    function createDeck() {
+        const colors = ['red', 'blue', 'green', 'yellow'];
+        const values = ['0','1','2','3','4','5','6','7','8','9','🚫','🔄','+2'];
+        let deck = [];
+
+        colors.forEach(color => {
+            values.forEach(val => {
+                deck.push({ color, value: val });
+                if (val !== '0') deck.push({ color, value: val }); // Podwójne karty poza '0'
+            });
+        });
+        
+        // Tasowanie
+        return deck.sort(() => Math.random() - 0.5);
+    }
+
+    // 1. INICJALIZACJA HOSTA (PC)
+    function initHost() {
+        isHost = true;
+        const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+        peer = new Peer('UNO-' + code);
+
+        peer.on('open', (id) => {
+            switchScreen('pc-screen');
+            document.getElementById('display-room-code').innerText = code;
+        });
+
+        peer.on('connection', (c) => {
+            connections.push(c);
+            c.on('data', (data) => handleHostMessage(c, data));
+            c.on('close', () => {
+                gameState.players = gameState.players.filter(p => p.id !== c.peer);
+                broadcastState();
+            });
+        });
+    }
+
+    // 2. INICJALIZACJA CLIENTA (TELEFON)
+    function initClient() {
+        const code = document.getElementById('join-code').value.toUpperCase();
+        const name = document.getElementById('player-name').value.trim();
+
+        if(!code || !name) return alert('Wpisz kod pokoju i swoje imię!');
+
+        peer = new Peer();
+        peer.on('open', () => {
+            conn = peer.connect('UNO-' + code);
+            
+            conn.on('open', () => {
+                switchScreen('mobile-screen');
+                conn.send({ type: 'JOIN', name: name });
+            });
+
+            conn.on('data', (data) => handleClientMessage(data));
+        });
+    }
+
+    // LOGIKA HOSTA (PC ZARZĄDZA GRĄ)
+    function handleHostMessage(connection, data) {
+        if (data.type === 'JOIN') {
+            gameState.players.push({
+                id: connection.peer,
+                name: data.name,
+                hand: [],
+                score: 0
+            });
+            if (gameState.players.length >= 2) {
+                document.getElementById('start-game-btn').style.display = 'block';
+            }
+            broadcastState();
+        }
+
+        if (data.type === 'PLAY_CARD') {
+            const player = gameState.players[gameState.currentTurn];
+            if (player.id === connection.peer) {
+                const card = player.hand[data.cardIndex];
+                
+                // Walidacja ruchu
+                if (card.color === gameState.topCard.color || card.value === gameState.topCard.value) {
+                    // Zagrano prawidłową kartę
+                    gameState.topCard = card;
+                    player.hand.splice(data.cardIndex, 1);
+
+                    // Obsługa Efektów Kart
+                    let logMsg = `${player.name} zagrał ${card.value}!`;
+                    
+                    if (card.value === '🚫') { // BLOCK
+                        nextTurn();
+                        logMsg = `${player.name} ZABROKOWAŁ następnego gracza!`;
+                    } else if (card.value === '🔄') { // REVERSE
+                        gameState.direction *= -1;
+                        logMsg = `${player.name} ZMIENIŁ KIERUNEK!`;
+                    } else if (card.value === '+2') { // DOBIERZ 2
+                        nextTurn();
+                        const target = gameState.players[gameState.currentTurn];
+                        target.hand.push(gameState.deck.pop(), gameState.deck.pop());
+                        logMsg = `${target.name} DOBIERA 2 KARTY!`;
+                    }
+
+                    // Sprawdzenie wygranej
+                    if (player.hand.length === 0) {
+                        player.score += 100; // Punkty za wygraną
+                        showLog(`🏆 ${player.name} WYGRAŁ RUNDĘ!`);
+                        gameState.started = false;
+                    } else {
+                        showLog(logMsg);
+                        nextTurn();
+                    }
+
+                    broadcastState();
+                }
+            }
+        }
+
+        if (data.type === 'DRAW_CARD') {
+            const player = gameState.players[gameState.currentTurn];
+            if (player.id === connection.peer) {
+                player.hand.push(gameState.deck.pop());
+                showLog(`${player.name} DOBRAŁ KARTĘ!`);
+                nextTurn();
+                broadcastState();
+            }
+        }
+    }
+
+    function startGame() {
+        gameState.deck = createDeck();
+        gameState.started = true;
+        
+        // Rozdaj po 7 kart
+        gameState.players.forEach(p => {
+            p.hand = gameState.deck.splice(0, 7);
+        });
+
+        // Wylosuj kartę startową
+        gameState.topCard = gameState.deck.pop();
+        gameState.currentTurn = 0;
+
+        document.getElementById('start-game-btn').style.display = 'none';
+        showLog("GRA ROZPOCZĘTA!");
+        broadcastState();
+    }
+
+    function nextTurn() {
+        gameState.currentTurn = (gameState.currentTurn + gameState.direction + gameState.players.length) % gameState.players.length;
+    }
+
+    function broadcastState() {
+        // Renderuj lokalnie na PC
+        renderPCBoard();
+
+        // Wysyłaj stan do graczy
+        connections.forEach(c => {
+            const player = gameState.players.find(p => p.id === c.peer);
+            const isMyTurn = gameState.players[gameState.currentTurn]?.id === c.peer;
+
+            c.send({
+                type: 'SYNC',
+                hand: player ? player.hand : [],
+                topCard: gameState.topCard,
+                isMyTurn: isMyTurn,
+                currentTurnName: gameState.players[gameState.currentTurn]?.name
+            });
+        });
+    }
+
+    // RENDEROWANIE EKRANU TV / PC
+    function renderPCBoard() {
+        const list = document.getElementById('players-list');
+        list.innerHTML = '';
+
+        gameState.players.forEach((p, idx) => {
+            const isActive = idx === gameState.currentTurn;
+            list.innerHTML += `
+                <div class="player-node ${isActive ? 'active-turn' : ''}">
+                    <div class="player-name">${p.name}</div>
+                    <div class="player-cards-count">🎴 ${p.hand.length} kart</div>
+                    <div class="player-score">${p.score} pkt</div>
+                </div>
+            `;
+        });
+
+        if (gameState.topCard) {
+            const topCardEl = document.getElementById('top-card');
+            topCardEl.className = `card ${gameState.topCard.color}`;
+            topCardEl.innerText = gameState.topCard.value;
+        }
+    }
+
+    // LOGIKA CLIENTA (TELEFON)
+    function handleClientMessage(data) {
+        if (data.type === 'SYNC') {
+            // Renderuj karty na telefonie
+            const handEl = document.getElementById('my-hand');
+            handEl.innerHTML = '';
+
+            data.hand.forEach((card, idx) => {
+                const cardEl = document.createElement('div');
+                cardEl.className = `card ${card.color}`;
+                cardEl.innerText = card.value;
+                cardEl.onclick = () => playCard(idx);
+                handEl.appendChild(cardEl);
+            });
+
+            // Status tury
+            const statusEl = document.getElementById('turn-status');
+            const drawBtn = document.getElementById('draw-btn');
+
+            if (data.isMyTurn) {
+                statusEl.innerText = "TWOJA TURA! Zagraj kartę.";
+                statusEl.style.color = "var(--yellow)";
+                drawBtn.disabled = false;
+            } else {
+                statusEl.innerText = `Ruch wykonuje: ${data.currentTurnName}`;
+                statusEl.style.color = "#fff";
+                drawBtn.disabled = true;
+            }
+        }
+    }
+
+    function playCard(index) {
+        conn.send({ type: 'PLAY_CARD', cardIndex: index });
+    }
+
+    function drawCard() {
+        conn.send({ type: 'DRAW_CARD' });
+    }
+
+    // UTILS
+    function switchScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    function showLog(text) {
+        const log = document.getElementById('game-log');
+        log.innerText = text;
+        setTimeout(() => { log.innerText = ''; }, 3000);
+    }
+</script>
+</body>
+</html>
